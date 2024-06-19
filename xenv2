@@ -18,7 +18,7 @@ local Tabs = {
     LocalPlayer = Window:AddTab('Local Player'),
     Misc = Window:AddTab('Misc'),
     Rage = Window:AddTab('Rage'),
-    UI Settings = Window:AddTab('UI Settings'),
+    Settings = Window:AddTab('Settings'),
 }
 
 -- aimbot
@@ -843,7 +843,7 @@ local WatermarkConnection = game:GetService('RunService').RenderStepped:Connect(
     ));
 end);
 
-Library.KeybindFrame.Visible = true; -- todo: add a function for this
+Library.KeybindFrame.Visible = true; 
 
 Library:OnUnload(function()
     WatermarkConnection:Disconnect()
@@ -853,35 +853,17 @@ Library:OnUnload(function()
 end)
 
 
-local MenuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
-
-
-MenuGroup:AddButton('Unload', function() Library:Unload() end)
+local MenuGroup = Tabs['Settings']:AddLeftGroupbox('Menu')
 MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', { Default = 'End', NoUI = true, Text = 'Menu keybind' })
-
-Library.ToggleKeybind = Options.MenuKeybind 
-
-
+MenuGroup:AddButton('Unload', function() Library:Unload() end)
 
 
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
-
-
 SaveManager:IgnoreThemeSettings()
-
-
 SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
 
-
-ThemeManager:SetFolder('MyScriptHub')
-SaveManager:SetFolder('MyScriptHub/specific-game')
-
-
-SaveManager:BuildConfigSection(Tabs['UI Settings'])
-
-
-ThemeManager:ApplyToTab(Tabs['UI Settings'])
-
-
+SaveManager:BuildConfigSection(Tabs['Settings'])
+ThemeManager:ApplyToTab(Tabs['Settings'])
 SaveManager:LoadAutoloadConfig()
+
