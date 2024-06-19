@@ -18,7 +18,7 @@ local Tabs = {
     LocalPlayer = Window:AddTab('Local Player'),
     Misc = Window:AddTab('Misc'),
     Rage = Window:AddTab('Rage'),
-    ['UI Settings'] = Window:AddTab('UI Settings'),
+    UI Settings = Window:AddTab('UI Settings'),
 }
 
 -- aimbot
