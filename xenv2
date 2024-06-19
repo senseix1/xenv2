@@ -1,0 +1,888 @@
+
+local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
+
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+
+local Window = Library:CreateWindow({
+    Title = 'xen',
+    Center = true,
+    AutoShow = true,
+    TabPadding = 8,
+    MenuFadeTime = 0.2
+})
+
+local Tabs = {
+    Main = Window:AddTab('Main'),
+    Esp = Window:AddTab('Esp'),
+    LocalPlayer = Window:AddTab('Local Player'),
+    Misc = Window:AddTab('Misc'),
+    Rage = Window:AddTab('Rage'),
+    ['UI Settings'] = Window:AddTab('UI Settings'),
+}
+
+-- aimbot
+local LeftGroupBox = Tabs.Main:AddLeftGroupbox('Aimbot')
+
+local Players = game:GetService("Players")
+local Camera = game.Workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+
+local target = nil
+local lockOnToggle = false
+local lockOnEnabled = false
+local aimbotEnabled = false
+local lockOnKey = Enum.KeyCode.Q -- Default key
+local smoothness = 1
+local basePing = 100
+
+local function autopred(targetPosition, targetVelocity)
+    local ping = basePing
+    local predpos = targetPosition + targetVelocity * (ping / 1000)
+    return predpos
+end
+
+local function findClosestPlayerToCursor()
+    local mouse = Players.LocalPlayer:GetMouse()
+    local closestDistance = math.huge
+    local closestPlayer = nil
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= Players.LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") then
+            local character = player.Character
+            local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+
+            if humanoidRootPart then
+                local screenPos = Camera:WorldToViewportPoint(humanoidRootPart.Position)
+                local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(mouse.X, mouse.Y)).Magnitude
+
+                if distance < closestDistance then
+                    closestDistance = distance
+                    closestPlayer = player
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == lockOnKey and aimbotEnabled then
+        lockOnToggle = not lockOnToggle
+
+        if lockOnToggle then
+            lockOnEnabled = true
+            target = findClosestPlayerToCursor()
+        else
+            lockOnEnabled = false
+            target = nil
+        end
+    end
+end)
+
+function calculateTweenInfo(smoothness)
+    local duration = 0.5
+    local easingStyle = Enum.EasingStyle.Quad
+    local easingDirection = Enum.EasingDirection.Out
+
+    if smoothness <= 3 then
+        duration = 0
+    elseif smoothness <= 6 then
+        duration = 0.2
+    else
+        duration = 0.5
+    end
+
+    return TweenInfo.new(duration, easingStyle, easingDirection)
+end
+
+function updateCameraPosition()
+    if lockOnEnabled and target then
+        local character = target.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+            local targetPosition = humanoidRootPart.Position
+            local targetVelocity = humanoidRootPart.Velocity
+            local predictedPosition = autopred(targetPosition, targetVelocity)
+
+            local currentCameraPos = Camera.CFrame.p
+            local tweenInfo = calculateTweenInfo(smoothness)
+
+            if tweenInfo.Time > 0 then
+                local cameraTween = TweenService:Create(Camera, tweenInfo, {
+                    CFrame = CFrame.new(currentCameraPos, predictedPosition)
+                })
+                cameraTween:Play()
+            else
+                Camera.CFrame = CFrame.new(currentCameraPos, predictedPosition)
+            end
+        else
+            lockOnEnabled = false
+            target = nil
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if aimbotEnabled then
+        updateCameraPosition()
+    end
+end)
+
+LeftGroupBox:AddToggle('AimbotToggle', {
+    Text = 'Aimbot',
+    Default = false,
+    Tooltip = 'Locks on to player using your camera',
+    Callback = function(value)
+        aimbotEnabled = value
+        if not value then
+            lockOnToggle = false
+            lockOnEnabled = false
+            target = nil
+        end
+    end
+})
+
+LeftGroupBox:AddLabel('Aimbot Key'):AddKeyPicker('AimbotKey', {
+    Default = 'Q',
+    SyncToggleState = false,
+    Mode = 'Toggle',
+    Text = 'Aimbot Key',
+    NoUI = false,
+    Callback = function(value)
+        if typeof(value) == "EnumItem" then
+            lockOnKey = value
+        else
+            lockOnKey = Enum.KeyCode[value]
+        end
+    end,
+    ChangedCallback = function(new)
+        if typeof(new) == "EnumItem" then
+            lockOnKey = new
+        else
+            lockOnKey = Enum.KeyCode[new]
+        end
+    end
+})
+
+
+
+-- esp
+local Players = game:GetService("Players")
+
+local DistanceThreshold = 500
+
+local LeftGroupBox = Tabs.Esp:AddLeftGroupbox('Esp')
+
+local boxEspEnabled = false
+local billboards = {}
+
+local function getDistance(playerCharacter)
+    local localPlayerCharacter = Players.LocalPlayer.Character
+    if not localPlayerCharacter then
+        return math.huge
+    end
+    local localRootPart = localPlayerCharacter:FindFirstChild("HumanoidRootPart")
+    local playerRootPart = playerCharacter:FindFirstChild("HumanoidRootPart")
+    if not (localRootPart and playerRootPart) then
+        return math.huge
+    end
+    return (localRootPart.Position - playerRootPart.Position).magnitude
+end
+
+local function createBorder(size, position, parent, color)
+    local border = Instance.new("Frame")
+    border.Size = size
+    border.Position = position
+    border.BackgroundColor3 = color or Color3.new(1, 1, 1)
+    border.BorderSizePixel = 0
+    border.Parent = parent
+end
+
+local function createBillboardGui(character)
+    local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+    if not torso then
+        return
+    end
+
+    local billboardGui = Instance.new("BillboardGui")
+    billboardGui.Size = UDim2.new(6, 0, 8, 0)
+    billboardGui.StudsOffset = Vector3.new(0, 0, 0)
+    billboardGui.Adornee = torso
+    billboardGui.AlwaysOnTop = true
+    billboardGui.Name = "PlayerHighlight"
+
+    createBorder(UDim2.new(1, 0, 0, 2), UDim2.new(0, 0, 0, 0), billboardGui, Color3.new(1, 1, 1)) -- Top border
+    createBorder(UDim2.new(1, 0, 0, 2), UDim2.new(0, 0, 1, -2), billboardGui, Color3.new(1, 1, 1)) -- Bottom border
+    createBorder(UDim2.new(0, 2, 1, 0), UDim2.new(0, 0, 0, 0), billboardGui, Color3.new(1, 1, 1)) -- Left border
+    createBorder(UDim2.new(0, 2, 1, 0), UDim2.new(1, -2, 0, 0), billboardGui, Color3.new(1, 1, 1)) -- Right border
+
+    billboardGui.Parent = torso
+    table.insert(billboards, billboardGui)
+end
+
+local function removeBillboardGui(character)
+    for i = #billboards, 1, -1 do
+        local billboardGui = billboards[i]
+        if billboardGui.Adornee == character:FindFirstChild("Torso") or billboardGui.Adornee == character:FindFirstChild("UpperTorso") then
+            billboardGui:Destroy()
+            table.remove(billboards, i)
+        end
+    end
+end
+
+local function onCharacterAdded(character)
+    if boxEspEnabled then
+        createBillboardGui(character)
+    end
+
+    character:WaitForChild("Humanoid").Died:Connect(function()
+        removeBillboardGui(character)
+    end)
+end
+
+local function onPlayerAdded(player)
+    if player == Players.LocalPlayer then
+        return
+    end
+
+    if player.Character then
+        onCharacterAdded(player.Character)
+    end
+
+    player.CharacterAdded:Connect(function(character)
+        onCharacterAdded(character)
+    end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+for _, player in pairs(Players:GetPlayers()) do
+    onPlayerAdded(player)
+end
+
+local function removeESPFromLocalPlayer()
+    local localPlayerCharacter = Players.LocalPlayer.Character
+    if localPlayerCharacter then
+        removeBillboardGui(localPlayerCharacter)
+    end
+end
+
+Players.LocalPlayer.CharacterAdded:Connect(removeESPFromLocalPlayer)
+removeESPFromLocalPlayer()
+
+LeftGroupBox:AddToggle('Boxes', {
+    Text = 'Box esp',
+    Default = false,
+    Tooltip = 'Draws box around player',
+
+    Callback = function(Value)
+        boxEspEnabled = Value
+        if boxEspEnabled then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= Players.LocalPlayer and player.Character then
+                    if getDistance(player.Character) <= DistanceThreshold then
+                        createBillboardGui(player.Character)
+                    end
+                end
+            end
+        else
+            for _, billboardGui in ipairs(billboards) do
+                billboardGui:Destroy()
+            end
+            billboards = {}
+        end
+    end,
+})
+
+LeftGroupBox:AddSlider('Distance Check', {
+    Text = 'Distance Check',
+    Default = 500,
+    Min = 0,
+    Max = 10000,
+    Rounding = 1,
+    Compact = false,
+
+    Callback = function(Value)
+        DistanceThreshold = Value
+        if boxEspEnabled then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= Players.LocalPlayer and player.Character then
+                    local distance = getDistance(player.Character)
+                    if distance <= DistanceThreshold then
+                        createBillboardGui(player.Character)
+                    else
+                        removeBillboardGui(player.Character)
+                    end
+                end
+            end
+        end
+    end,
+})
+
+LeftGroupBox:AddLabel('Color'):AddColorPicker('Box color', {
+    Default = Color3.new(1, 1, 1),
+    Title = 'Box colors',
+    Transparency = 0,
+
+    Callback = function(color)
+        for _, billboardGui in ipairs(billboards) do
+            for _, border in ipairs(billboardGui:GetChildren()) do
+                if border:IsA("Frame") then
+                    border.BackgroundColor3 = color
+                end
+            end
+        end
+    end
+})
+
+
+
+
+local RightGroupbox = Tabs.Esp:AddRightGroupbox('Chams')
+
+local Players = game:GetService("Players")
+local Toggle = false
+local ChamsColor = Color3.new(1, 1, 1)
+
+local function addHighlightToPlayer(character, color)
+    local highlight = Instance.new("Highlight")
+    highlight.Adornee = character
+    highlight.FillColor = color
+    highlight.OutlineColor = color
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = character
+end
+
+local function removeHighlightFromPlayer(character)
+    for _, child in ipairs(character:GetChildren()) do
+        if child:IsA("Highlight") then
+            child:Destroy()
+        end
+    end
+end
+
+local function onPlayerAdded(player)
+    player.CharacterAdded:Connect(function(character)
+        if player ~= Players.LocalPlayer and Toggle then
+            addHighlightToPlayer(character, ChamsColor)
+        end
+    end)
+end
+
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+for _, player in pairs(Players:GetPlayers()) do
+    if player ~= Players.LocalPlayer and player.Character and Toggle then
+        addHighlightToPlayer(player.Character, ChamsColor)
+    end
+end
+
+Players.LocalPlayer.CharacterAdded:Connect(function(character)
+    if Toggle then
+        addHighlightToPlayer(character, ChamsColor)
+    end
+end)
+
+RightGroupbox:AddToggle('Chams', {
+    Text = 'Chams',
+    Default = false,
+    Tooltip = 'Chams',
+
+    Callback = function(value)
+        Toggle = value
+        
+        if not Toggle then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= Players.LocalPlayer and player.Character then
+                    removeHighlightFromPlayer(player.Character)
+                end
+            end
+        else
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= Players.LocalPlayer and player.Character then
+                    addHighlightToPlayer(player.Character, ChamsColor)
+                end
+            end
+        end
+    end,
+})
+
+RightGroupbox:AddLabel('Color'):AddColorPicker('Chams Color', {
+    Default = ChamsColor,
+    Title = 'Chams Color',
+    Transparency = 0,
+
+    Callback = function(value)
+        ChamsColor = value
+        
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= Players.LocalPlayer and player.Character then
+                removeHighlightFromPlayer(player.Character)
+                if Toggle then
+                    addHighlightToPlayer(player.Character, ChamsColor)
+                end
+            end
+        end
+    end,
+})
+
+
+
+
+
+
+local RightGroupbox = Tabs.Misc:AddRightGroupbox('Fov Changer')
+LeftGroupBox = Tabs.Misc:AddLeftGroupbox('CFrame Speed')
+
+local player = game.Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local isCFrameWalkEnabled = false
+local cframeWalkSpeed = 0
+local cframeKey = Enum.KeyCode.C
+local isCFrameActive = false
+
+local function updateCFrameWalk()
+    if isCFrameWalkEnabled then
+        RunService.RenderStepped:Connect(function()
+            if isCFrameActive then
+                local moveDirection = character.Humanoid.MoveDirection
+                character:SetPrimaryPartCFrame(character.PrimaryPart.CFrame + moveDirection * cframeWalkSpeed * RunService.RenderStepped:Wait())
+            end
+        end)
+    end
+end
+
+local Depbox = LeftGroupBox:AddDependencyBox()
+Depbox:AddToggle('CFrame walkSpeed', {
+    Text = 'CFrame walkspeed',
+    Callback = function(Value)
+        if type(Value) == "boolean" then
+            isCFrameWalkEnabled = Value
+            if Value then
+                updateCFrameWalk()
+            end
+        else
+            warn("Invalid type for CFrame walkSpeed toggle callback: expected boolean, got " .. type(Value))
+        end
+    end
+})
+
+local SubDepbox = Depbox:AddDependencyBox()
+SubDepbox:AddSlider('Cframe Slider', {
+    Text = 'Cframe Speed',
+    Default = 0,
+    Min = 0,
+    Max = 500,
+    Rounding = 0,
+    Callback = function(Value)
+        if type(Value) == "number" then
+            cframeWalkSpeed = Value
+        else
+            warn("Invalid type for Cframe Slider callback: expected number, got " .. type(Value))
+        end
+    end
+})
+
+LeftGroupBox:AddLabel('Cframe keybind'):AddKeyPicker('Cframe', {
+    Default = 'C',
+    SyncToggleState = false,
+    Mode = 'Toggle',
+    Text = 'CFrame walkspeed',
+    NoUI = false,
+    Callback = function(Value)
+        if typeof(Value) == "EnumItem" then
+            cframeKey = Value
+        else
+            warn("Invalid type for Cframe keybind callback: expected EnumItem, got " .. typeof(Value))
+        end
+    end,
+    ChangedCallback = function(new)
+        if typeof(new) == "EnumItem" then
+            cframeKey = new
+        else
+            warn("Invalid type for Cframe keybind ChangedCallback: expected EnumItem, got " .. typeof(new))
+        end
+    end
+})
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == cframeKey and isCFrameWalkEnabled then
+        isCFrameActive = not isCFrameActive
+    end
+end)
+
+
+
+
+RightGroupbox:AddSlider('Fov Changer', {
+    Text = 'Fov Changer',
+    Default = 70,
+    Min = 70,
+    Max = 120,
+    Rounding = 1,
+    Compact = false,
+
+    Callback = function(value)
+        camera.FieldOfView = value
+    end
+})
+
+
+local Players = game:GetService("Players")
+local Camera = game.Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Spectating = false
+
+local dropdown
+
+
+local function UpdateDropdownValues()
+    local playerNames = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        table.insert(playerNames, player.Name)
+    end
+    
+    dropdown:SetValues(playerNames) 
+    dropdown.Default = 1  
+end
+
+dropdown = RightGroupbox:AddDropdown('spectate', {
+    Values = {},  
+    Default = 1,
+    Multi = false,
+    Text = 'Spectate',
+    Tooltip = 'Watch players',
+    Callback = function (value)
+        local playerToSpectate = Players:FindFirstChild(value)
+        if playerToSpectate then
+            if Spectating then
+                Camera.CameraSubject = LocalPlayer.Character.Humanoid
+                Camera.CameraType = Enum.CameraType.Custom
+                Spectating = false
+            end
+            Camera.CameraSubject = playerToSpectate.Character.Humanoid
+            Camera.CameraType = Enum.CameraType.Custom
+            Spectating = true
+        else
+            warn("Player not found: " .. value)
+        end
+    end
+})
+
+
+UpdateDropdownValues()
+
+
+Players.PlayerAdded:Connect(function(player)
+    UpdateDropdownValues()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    UpdateDropdownValues()
+end)
+
+
+script.AncestryChanged:Connect(function()
+    if not script.Parent then
+        Camera.CameraSubject = LocalPlayer.Character.Humanoid
+        Camera.CameraType = Enum.CameraType.Custom
+        Spectating = false
+    end
+end)
+
+
+local LeftGroupBox = Tabs.LocalPlayer:AddLeftGroupbox('Local player')
+
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local selectedColor = Color3.new(0, 1, 0) -- Default color
+
+-- Function to apply neon glow to all parts of the character
+local function makeCharacterNeon(character)
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Material = Enum.Material.Neon
+            part.Color = selectedColor -- Use the selected color
+            part.Transparency = 0 -- Adjust as needed for glow effect
+        elseif part:IsA("Decal") or part:IsA("Texture") then
+            part.Transparency = 1 -- Make decals and textures fully transparent
+        end
+    end
+
+    local shirt = character:FindFirstChildOfClass("Shirt")
+    if shirt then
+        shirt.ShirtTemplate = ""
+    end
+
+    local pants = character:FindFirstChildOfClass("Pants")
+    if pants then
+        pants.PantsTemplate = ""
+    end
+
+    local face = character:FindFirstChild("face")
+    if face and face:IsA("Decal") then
+        face.Transparency = 1
+    end
+
+    local shirtGraphic = character:FindFirstChildOfClass("ShirtGraphic")
+    if shirtGraphic then
+        shirtGraphic.Graphic = ""
+    end
+
+    local head = character:FindFirstChild("Head")
+    if head and head:IsA("BasePart") then
+        head.Material = Enum.Material.Neon
+        head.Color = selectedColor -- Use the selected color
+        head.Transparency = 0 -- Ensure no transparency on head
+    end
+end
+
+-- Function to apply force field material to the character
+local function makeCharacterForceField(character)
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Material = Enum.Material.ForceField
+            part.Color = selectedColor -- Use the selected color
+            part.Transparency = 0 -- Adjust as needed for force field effect
+        elseif part:IsA("Decal") or part:IsA("Texture") then
+            part.Transparency = 1 -- Make decals and textures fully transparent
+        end
+    end
+
+    local shirt = character:FindFirstChildOfClass("Shirt")
+    if shirt then
+        shirt.ShirtTemplate = ""
+    end
+
+    local pants = character:FindFirstChildOfClass("Pants")
+    if pants then
+        pants.PantsTemplate = ""
+    end
+
+    local face = character:FindFirstChild("face")
+    if face and face:IsA("Decal") then
+        face.Transparency = 1
+    end
+
+    local shirtGraphic = character:FindFirstChildOfClass("ShirtGraphic")
+    if shirtGraphic then
+        shirtGraphic.Graphic = ""
+    end
+
+    local head = character:FindFirstChild("Head")
+    if head and head:IsA("BasePart") then
+        head.Material = Enum.Material.ForceField
+        head.Color = selectedColor -- Use the selected color
+        head.Transparency = 0 -- Ensure no transparency on head
+    end
+end
+
+-- Handle dropdown and toggle changes
+local currentEffect = nil
+local effectEnabled = false
+
+local function applyCurrentEffect(character)
+    if effectEnabled then
+        if currentEffect == 'Neon' then
+            makeCharacterNeon(character)
+        elseif currentEffect == 'ForceField' then
+            makeCharacterForceField(character)
+        end
+    else
+        -- Remove any effects when toggled off
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Material = Enum.Material.Plastic -- Reset material
+                part.Transparency = 0 -- Reset transparency
+                part.Color = Color3.fromRGB(255, 255, 255) -- Reset color
+            end
+        end
+    end
+end
+
+local function onCharacterAdded(character)
+    applyCurrentEffect(character)
+end
+
+player.CharacterAdded:Connect(onCharacterAdded)
+
+if player.Character then
+    applyCurrentEffect(player.Character)
+end
+
+LeftGroupBox:AddToggle('EffectToggle', {
+    Text = 'Enable Effect',
+    Default = false,
+    Tooltip = 'Turns on the selected effect for your local player',
+    Callback = function(value)
+        effectEnabled = value
+        if player.Character then
+            applyCurrentEffect(player.Character)
+        end
+    end
+})
+
+LeftGroupBox:AddDropdown('EffectDropdown', {
+    Values = {'Neon', 'ForceField'},
+    Default = 1,
+    Multi = false,
+    Text = 'Select Effect',
+    Tooltip = 'Choose an effect to apply to your player',
+    Callback = function(value)
+        currentEffect = value
+        if player.Character then
+            applyCurrentEffect(player.Character)
+        end
+    end
+})
+
+LeftGroupBox:AddLabel('Color'):AddColorPicker('Color', {
+    Default = selectedColor,
+    Title = 'Local Player Colors',
+    Transparency = 0,
+    Callback = function(value)
+        selectedColor = value
+        if effectEnabled and player.Character then
+            applyCurrentEffect(player.Character)
+        end
+    end
+})
+
+
+
+
+
+local RightGroupbox = Tabs.LocalPlayer:AddRightGroupbox('World Visuals')
+
+
+
+local Lighting = game:GetService("Lighting")
+
+local currentFogStrength = 0
+local currentFogColor = Color3.new(1, 1, 1)
+local fogEnabled = false
+
+local Depbox = RightGroupbox:AddDependencyBox()
+
+Depbox:AddToggle('World Visuals', {
+    Text = 'World Fog',
+    Callback = function(value)
+        fogEnabled = value
+        if fogEnabled then
+            Lighting.FogEnd = currentFogStrength
+            Lighting.FogColor = currentFogColor
+        else
+            Lighting.FogEnd = 100000 
+        end
+    end
+})
+
+local SubDepbox = Depbox:AddDependencyBox()
+SubDepbox:AddSlider('Fog strength', {
+    Text = 'Fog strength',
+    Default = 0,
+    Min = 0,
+    Max = 300,
+    Rounding = 0,
+    Callback = function(value)
+        currentFogStrength = value
+        if fogEnabled then
+            Lighting.FogEnd = value
+        end
+    end
+})
+
+RightGroupbox:AddLabel('Fog Color'):AddColorPicker('Fog Color', {
+    Default = Color3.new(1, 1, 1),
+    Title = 'Fog',
+    Transparency = 0,
+    Callback = function(value)
+        currentFogColor = value
+        if fogEnabled then
+            Lighting.FogColor = value
+        end
+    end
+})
+
+
+
+
+
+Library:SetWatermarkVisibility(true)
+
+local FrameTimer = tick()
+local FrameCounter = 0;
+local FPS = 60;
+
+local WatermarkConnection = game:GetService('RunService').RenderStepped:Connect(function()
+    FrameCounter += 1;
+
+    if (tick() - FrameTimer) >= 1 then
+        FPS = FrameCounter;
+        FrameTimer = tick();
+        FrameCounter = 0;
+    end;
+
+    Library:SetWatermark(('Xen Gui | %s fps | %s ms'):format(
+        math.floor(FPS),
+        math.floor(game:GetService('Stats').Network.ServerStatsItem['Data Ping']:GetValue())
+    ));
+end);
+
+Library.KeybindFrame.Visible = true; -- todo: add a function for this
+
+Library:OnUnload(function()
+    WatermarkConnection:Disconnect()
+
+    print('Unloaded!')
+    Library.Unloaded = true
+end)
+
+
+local MenuGroup = Tabs['UI Settings']:AddLeftGroupbox('Menu')
+
+
+MenuGroup:AddButton('Unload', function() Library:Unload() end)
+MenuGroup:AddLabel('Menu bind'):AddKeyPicker('MenuKeybind', { Default = 'End', NoUI = true, Text = 'Menu keybind' })
+
+Library.ToggleKeybind = Options.MenuKeybind 
+
+
+
+
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+
+
+SaveManager:IgnoreThemeSettings()
+
+
+SaveManager:SetIgnoreIndexes({ 'MenuKeybind' })
+
+
+ThemeManager:SetFolder('MyScriptHub')
+SaveManager:SetFolder('MyScriptHub/specific-game')
+
+
+SaveManager:BuildConfigSection(Tabs['UI Settings'])
+
+
+ThemeManager:ApplyToTab(Tabs['UI Settings'])
+
+
+SaveManager:LoadAutoloadConfig()
